@@ -51,24 +51,53 @@ int main()
 
 ---
 
-### The Solution: Branchless Clamping via Promotion
+###### Theory: Solving Signed Overflow via Unsigned Types
 
-To safely saturate bounds without risking deleted `if/else` checks, promote arithmetic to a wider container (`long long` / `int64_t`) and clamp the result using `std::min`:
+In C++, **signed integer overflow** is Undefined Behavior (UB), meaning the standard permits the compiler to assume it never happens and aggressively delete bounds checks or miscompile logic.
+
+Switching to `unsigned int` solves this fundamentally at the language standard level:
+
+1. **Well-Defined Modular Arithmetic:** Under the ISO C++ standard, unsigned arithmetic **never** produces Undefined Behavior. It is strictly defined to follow modulo arithmetic ($2^N$, where $N$ is the number of bits).
+2. **Double the Positive Range:** A 32-bit `signed int` uses 1 bit for the sign, limiting positive numbers to `2,147,483,647` ($2^{31}-1$). An `unsigned int` uses all 32 bits for the magnitude, expanding the positive ceiling to `4,294,967,295` ($2^{32}-1$).
+3. **No Sign-Bit Misinterpretation:** Adding `1` to `2147483647` changes the most significant bit from `0` to `1` (`0x80000000`). In a signed type, this bit makes the number negative (`-2147483648`). In an `unsigned int`, there is no sign bit; the bit simply represents the value $2^{31}$, evaluating cleanly to `2147483648`.
+
+---
+
+### Code
 
 ```cpp
 #include <iostream>
-#include <limits>
-#include <algorithm>
 
-long long raw_input = 2147483647LL + 1LL;
-int safe_var = std::min(raw_input, static_cast<long long>(std::numeric_limits<int>::max()));
+unsigned int unsigned_var = 2147483647;
 
 int main()
 {
-    std::cout << "Saturated Safe Value: " << safe_var << std::endl; // Caps at 2147483647
-    std::cout << "Data Size: " << sizeof(safe_var) << " bytes" << std::endl;
+    unsigned_var = unsigned_var + 1;
+
+    std::cout << unsigned_var << std::endl;
+    std::cout << sizeof(unsigned_var) << std::endl;
+    std::cin.get();
     return 0;
 }
+
+```
+
+---
+
+### Code Explanation
+
+* `unsigned int unsigned_var = 2147483647;`
+Allocates 4 bytes (32 bits) without a sign bit. The value `2147483647` in binary is:
+`01111111 11111111 11111111 11111111`
+* `unsigned_var = unsigned_var + 1;`
+Adds `1`. The carry ripples into the 32nd bit, yielding:
+`10000000 00000000 00000000 00000000`
+Because the type is unsigned, the leading `1` is read as $+2,147,483,648$ rather than a negative indicator.
+* `std::cout << unsigned_var << std::endl;`
+Outputs `2147483648`. The value increments correctly without flipping negative or triggering undefined behavior.
+* `std::cout << sizeof(unsigned_var) << std::endl;`
+Outputs `4`, confirming it occupies the exact same memory footprint (4 bytes / 32 bits) as a standard `signed int`.
+* `std::cin.get();`
 
 ```
 
@@ -131,3 +160,40 @@ g++ -std=c++20 -g -fsanitize=undefined,address main.cpp -o app_debug.exe
 
 ---
 
+### Theory: Register Truncation
+
+Register truncation occurs when a value residing in a wider data type (such as a 32-bit or 64-bit integer) is cast or assigned into a narrower storage location (such as a 16-bit `short` or 8-bit `char`).
+
+#### Mechanical Cause
+
+* **Bit-Discarding:** CPUs store integers across register boundaries. When moving data from a 32-bit register (e.g., `EAX`) to a 16-bit sub-register (e.g., `AX`), the processor does not scale or proportionally round the data. It copies only the least significant 16 bits (lower two bytes) and completely ignores the upper 16 bits.
+* **Value Corruption:** If the value exceeds the target type's maximum capacity (for a signed 16-bit integer, $[-32768, 32767]$), the preserved lower bits produce a completely different number.
+* **Bit-Pattern Breakdown:**
+* Decimal value: `70000`
+* 32-bit representation (Hex `0x00011170`):
+`00000000 00000001 00010001 01110000`
+* Truncated 16-bit slice (Hex `0x1170`):
+`00010001 01110000`
+* Interpreted decimal value: $4096 + 256 + 112 = 4464$
+
+
+
+---
+
+### Code: Register Truncation Demonstration
+
+```cpp
+#include <iostream>
+
+int large_sensor_reading = 70000;
+short truncated_var = (short)large_sensor_reading; // Drops the upper 16 bits
+
+int main()
+{
+    std::cout << truncated_var << std::endl;
+    std::cout << sizeof(truncated_var) << std::endl;
+    std::cin.get();
+    return 0;
+}
+
+```
