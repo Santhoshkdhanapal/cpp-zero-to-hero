@@ -98,7 +98,7 @@ Outputs `2147483648`. The value increments correctly without flipping negative o
 * `std::cout << sizeof(unsigned_var) << std::endl;`
 Outputs `4`, confirming it occupies the exact same memory footprint (4 bytes / 32 bits) as a standard `signed int`.
 * `std::cin.get();`
-
+Pauses the console window so the output stays visible until you press Enter.
 ```
 
 ---
